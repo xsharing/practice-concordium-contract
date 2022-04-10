@@ -17,7 +17,7 @@ use core::fmt::Debug;
 /// After the auction end, any account can finalize the auction.
 /// The auction can be finalized only once.
 /// When the auction is finalized, every participant except the
-/// winner gets their money back.
+/// winner gets their money back. the winner also gets remainings back.
 
 /// The state in which an auction can be.
 #[derive(Debug, Serialize, SchemaType, Eq, PartialEq, PartialOrd)]
@@ -42,6 +42,7 @@ pub struct State {
     /// The highest bid so far (stored explicitly so that bidders can quickly
     /// see it)
     highest_bid:   Amount,
+    second_highest_bid:   Amount,
     /// The sold item (to be displayed to the auction participants), encoded in
     /// ASCII
     item:          Vec<u8>,
@@ -58,6 +59,7 @@ fn fresh_state(itm: Vec<u8>, exp: Timestamp) -> State {
     State {
         auction_state: AuctionState::NotSoldYet,
         highest_bid:   Amount::zero(),
+        second_highest_bid: Amount::zero(),
         item:          itm,
         expiry:        exp,
         bids:          BTreeMap::new(),
@@ -124,6 +126,7 @@ fn auction_bid<A: HasActions>(
         *bid_to_update > state.highest_bid,
         BidError::BidTooLow /* { bid: amount, highest_bid: state.highest_bid } */
     );
+    state.second_highest_bid = if state.highest_bid.micro_ccd>0 { state.highest_bid } else { *bid_to_update };
     state.highest_bid = *bid_to_update;
 
     Ok(A::accept())
@@ -147,13 +150,15 @@ fn auction_finalize<A: HasActions>(
     if balance == Amount::zero() {
         Ok(A::accept())
     } else {
-        let mut return_action = A::simple_transfer(&owner, state.highest_bid);
+        let mut return_action = A::simple_transfer(&owner, state.second_highest_bid);
         let mut remaining_bid = None;
         // Return bids that are smaller than highest
         for (addr, &amnt) in state.bids.iter() {
             if amnt < state.highest_bid {
                 return_action = return_action.and_then(A::simple_transfer(addr, amnt));
             } else {
+                // winner of the auction
+                return_action = return_action.and_then(A::simple_transfer(addr, amnt-state.second_highest_bid));
                 ensure!(remaining_bid.is_none(), FinalizeError::BidMapError);
                 state.auction_state = AuctionState::Sold(*addr);
                 remaining_bid = Some((addr, amnt));
@@ -173,7 +178,7 @@ fn auction_finalize<A: HasActions>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU8, Ordering};
+    use std::{sync::atomic::{AtomicU8, Ordering}, ops::Mul};
     use test_infrastructure::*;
 
     // A counter for generating new account addresses
@@ -181,12 +186,13 @@ mod tests {
     const AUCTION_END: u64 = 1;
     const ITEM: &str = "Starry night by Van Gogh";
 
-    fn dummy_fresh_state() -> State { dummy_active_state(Amount::zero(), BTreeMap::new()) }
+    fn dummy_fresh_state() -> State { dummy_active_state(Amount::zero(), Amount::zero(), BTreeMap::new()) }
 
-    fn dummy_active_state(highest: Amount, bids: BTreeMap<AccountAddress, Amount>) -> State {
+    fn dummy_active_state(highest: Amount, second_highest: Amount, bids: BTreeMap<AccountAddress, Amount>) -> State {
         State {
             auction_state: AuctionState::NotSoldYet,
             highest_bid: highest,
+            second_highest_bid: second_highest,
             item: ITEM.as_bytes().to_vec(),
             expiry: Timestamp::from_timestamp_millis(AUCTION_END),
             bids,
@@ -310,12 +316,14 @@ mod tests {
         let actions = finres2.expect("Finalizing auction should work");
         assert_eq!(
             actions,
-            ActionsTree::simple_transfer(&carol, winning_amount)
+            ActionsTree::simple_transfer(&carol, amount+amount)
                 .and_then(ActionsTree::simple_transfer(&alice, amount + amount))
+                .and_then(ActionsTree::simple_transfer(&bob, winning_amount-amount-amount))
         );
         assert_eq!(state, State {
             auction_state: AuctionState::Sold(bob),
             highest_bid:   winning_amount,
+            second_highest_bid: amount+amount,
             item:          ITEM.as_bytes().to_vec(),
             expiry:        Timestamp::from_timestamp_millis(AUCTION_END),
             bids:          bid_map,
@@ -346,10 +354,11 @@ mod tests {
         bid_map: &mut BTreeMap<AccountAddress, Amount>,
         highest_bid: Amount,
     ) {
+        let prev_highest_bid = state.highest_bid;
         let res: Result<ActionsTree, _> = auction_bid(ctx, amount, &mut state);
         res.expect("Bidding should pass");
         bid_map.insert(account, highest_bid);
-        assert_eq!(*state, dummy_active_state(highest_bid, bid_map.clone()));
+        assert_eq!(*state, dummy_active_state(highest_bid, if prev_highest_bid.micro_ccd>0 {prev_highest_bid} else {highest_bid} ,  bid_map.clone()));
     }
 
     #[test]
