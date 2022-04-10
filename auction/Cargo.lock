@@ -18,6 +18,8 @@ checksum = "4785bdd1c96b2a846b2bd7cc02e86b6b3dbf14e7e53446c4f54c92a361040822"
 [[package]]
 name = "concordium-contracts-common"
 version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "890444e6ac25df06cbbbb3666b8d998538e4554a494f64aa6e492d941cdc2f03"
 dependencies = [
  "fnv",
  "hashbrown",
@@ -26,6 +28,8 @@ dependencies = [
 [[package]]
 name = "concordium-std"
 version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c5588be20980faff3afbd61fe460a9dee769e664ca6a1ac9c88859e46320cef"
 dependencies = [
  "concordium-contracts-common",
  "concordium-std-derive",
@@ -35,6 +39,8 @@ dependencies = [
 [[package]]
 name = "concordium-std-derive"
 version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "897177a44af025a25d989a089a94b5ea516b24c0b23ea3732d0ce78b9f0eed0d"
 dependencies = [
  "concordium-contracts-common",
  "proc-macro2",
